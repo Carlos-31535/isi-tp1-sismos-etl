@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: sismos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sismos
+      POSTGRES_PASSWORD: sismos123
+      POSTGRES_DB: sismos
+      TZ: Europe/Lisbon
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: sismos-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+
+  nodered:
+    image: nodered/node-red:latest
+    container_name: sismos-nodered
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Lisbon
+    ports:
+      - "1880:1880"
+    volumes:
+      - nodered_data:/data
+    depends_on:
+      - postgres
+      - mosquitto
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sismos-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      TZ: Europe/Lisbon
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
+  mosquitto_data:
+  nodered_data:
+  grafana_data:
