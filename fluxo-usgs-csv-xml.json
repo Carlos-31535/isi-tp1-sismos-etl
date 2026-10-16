@@ -1,0 +1,161 @@
+[
+  {
+    "id": "usgs2_inject",
+    "type": "inject",
+    "name": "Buscar USGS CSV + XML",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 190,
+    "y": 440,
+    "wires": [
+      [
+        "usgs2_http_csv",
+        "usgs2_http_xml"
+      ]
+    ]
+  },
+  {
+    "id": "usgs2_http_csv",
+    "type": "http request",
+    "name": "USGS CSV",
+    "method": "GET",
+    "ret": "txt",
+    "paytoqs": "ignore",
+    "url": "https://earthquake.usgs.gov/fdsnws/event/1/query?minmagnitude=2.5&orderby=time&limit=200&format=csv",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 420,
+    "y": 400,
+    "wires": [
+      [
+        "usgs2_fn_csv"
+      ]
+    ]
+  },
+  {
+    "id": "usgs2_http_xml",
+    "type": "http request",
+    "name": "USGS QuakeML",
+    "method": "GET",
+    "ret": "txt",
+    "paytoqs": "ignore",
+    "url": "https://earthquake.usgs.gov/fdsnws/event/1/query?minmagnitude=2.5&orderby=time&limit=200&format=quakeml",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 420,
+    "y": 480,
+    "wires": [
+      [
+        "usgs2_fn_xml"
+      ]
+    ]
+  },
+  {
+    "id": "usgs2_fn_csv",
+    "type": "function",
+    "name": "CSV para INSERT",
+    "func": "const text = (msg.payload || '').toString().trim();\nconst lines = text.split(/\\r?\\n/);\nif (lines.length < 2) {\n    node.warn('USGS CSV: sem eventos');\n    return null;\n}\nconst header = lines[0];\nconst ids = [];\nconst payloads = [];\nfor (const line of lines.slice(1)) {\n    if (!line.trim()) continue;\n    // o id e a 12.a coluna e as colunas antes dele nunca tem virgulas nem aspas\n    const id = line.split(',')[11];\n    if (!id) continue;\n    ids.push(id);\n    payloads.push(header + '\\n' + line);   // mini-CSV: cabecalho + 1 linha\n}\nmsg.rotulo = 'USGS CSV';\nmsg.n = ids.length;\nmsg.query = `INSERT INTO raw_sismos (fonte, formato, id_externo, payload)\n             SELECT 'USGS-CSV', 'csv', t.id, t.p\n             FROM UNNEST($1::text[], $2::text[]) AS t(id, p)\n             ON CONFLICT (fonte, id_externo) DO NOTHING`;\nmsg.params = [ids, payloads];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 650,
+    "y": 400,
+    "wires": [
+      [
+        "usgs2_pg"
+      ]
+    ]
+  },
+  {
+    "id": "usgs2_fn_xml",
+    "type": "function",
+    "name": "XML para INSERT",
+    "func": "const xml = (msg.payload || '').toString();\nconst root = xml.match(/<q:quakeml[^>]*>/);\nconst params = xml.match(/<eventParameters[^>]*>/);\nconst events = xml.match(/<event\\b[\\s\\S]*?<\\/event>/g) || [];\nif (!root || !params || !events.length) {\n    node.warn('USGS XML: sem eventos');\n    return null;\n}\nconst ids = [];\nconst payloads = [];\nfor (const ev of events) {\n    const m = ev.match(/eventid=([A-Za-z0-9]+)/);\n    if (!m) continue;\n    ids.push(m[1]);\n    // QuakeML valido com 1 evento (mantem os namespaces do original)\n    payloads.push('<?xml version=\"1.0\" encoding=\"UTF-8\"?>' + root[0] + params[0] + ev + '</eventParameters></q:quakeml>');\n}\nmsg.rotulo = 'USGS XML';\nmsg.n = ids.length;\nmsg.query = `INSERT INTO raw_sismos (fonte, formato, id_externo, payload)\n             SELECT 'USGS-XML', 'xml', t.id, t.p\n             FROM UNNEST($1::text[], $2::text[]) AS t(id, p)\n             ON CONFLICT (fonte, id_externo) DO NOTHING`;\nmsg.params = [ids, payloads];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 650,
+    "y": 480,
+    "wires": [
+      [
+        "usgs2_pg"
+      ]
+    ]
+  },
+  {
+    "id": "usgs2_pg",
+    "type": "postgresql",
+    "name": "INSERT raw_sismos",
+    "query": "",
+    "postgreSQLConfig": "pg_config",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 880,
+    "y": 440,
+    "wires": [
+      [
+        "usgs2_resumo"
+      ]
+    ]
+  },
+  {
+    "id": "usgs2_resumo",
+    "type": "function",
+    "name": "Resumo",
+    "func": "msg.payload = msg.rotulo + ': ' + msg.pgsql.rowCount + ' novos de ' + msg.n + ' recebidos';\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1070,
+    "y": 440,
+    "wires": [
+      [
+        "usgs2_dbg"
+      ]
+    ]
+  },
+  {
+    "id": "usgs2_dbg",
+    "type": "debug",
+    "name": "Resultado USGS CSV/XML",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 1270,
+    "y": 440,
+    "wires": []
+  }
+]
