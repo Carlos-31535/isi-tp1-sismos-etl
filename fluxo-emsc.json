@@ -1,0 +1,137 @@
+[
+  {
+    "id": "emsc_inject",
+    "type": "inject",
+    "name": "Buscar sismos EMSC",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 170,
+    "y": 600,
+    "wires": [
+      [
+        "emsc_url"
+      ]
+    ]
+  },
+  {
+    "id": "emsc_url",
+    "type": "function",
+    "name": "URL EMSC (30 dias)",
+    "func": "// ultimos 30 dias (o mesmo periodo que o IPMA devolve) na regiao Portugal/Acores/Iberia\nconst inicio = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);\nmsg.url = 'https://www.seismicportal.eu/fdsnws/event/1/query'\n    + '?format=json&orderby=time&limit=3000'\n    + '&minlatitude=29&maxlatitude=45&minlongitude=-32&maxlongitude=-5'\n    + '&starttime=' + inicio;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 390,
+    "y": 600,
+    "wires": [
+      [
+        "emsc_http"
+      ]
+    ]
+  },
+  {
+    "id": "emsc_http",
+    "type": "http request",
+    "name": "EMSC GeoJSON",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 620,
+    "y": 600,
+    "wires": [
+      [
+        "emsc_fn"
+      ]
+    ]
+  },
+  {
+    "id": "emsc_fn",
+    "type": "function",
+    "name": "EMSC para INSERT",
+    "func": "const feats = (msg.payload && msg.payload.features) || [];\nif (!feats.length) {\n    node.warn('EMSC: sem eventos');\n    return null;\n}\nconst ids = [];\nconst payloads = [];\nfor (const f of feats) {\n    const id = f.id || (f.properties && f.properties.unid);\n    if (!id) continue;\n    ids.push(id);\n    payloads.push(JSON.stringify(f));\n}\nmsg.rotulo = 'EMSC';\nmsg.n = ids.length;\nmsg.query = `INSERT INTO raw_sismos (fonte, formato, id_externo, payload)\n             SELECT 'EMSC', 'geojson', t.id, t.p\n             FROM UNNEST($1::text[], $2::text[]) AS t(id, p)\n             ON CONFLICT (fonte, id_externo) DO NOTHING`;\nmsg.params = [ids, payloads];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 840,
+    "y": 600,
+    "wires": [
+      [
+        "emsc_pg"
+      ]
+    ]
+  },
+  {
+    "id": "emsc_pg",
+    "type": "postgresql",
+    "name": "INSERT raw_sismos",
+    "query": "",
+    "postgreSQLConfig": "pg_config",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 1060,
+    "y": 600,
+    "wires": [
+      [
+        "emsc_res"
+      ]
+    ]
+  },
+  {
+    "id": "emsc_res",
+    "type": "function",
+    "name": "Resumo",
+    "func": "msg.payload = msg.rotulo + ': ' + msg.pgsql.rowCount + ' novos de ' + msg.n + ' recebidos';\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1240,
+    "y": 600,
+    "wires": [
+      [
+        "emsc_dbg"
+      ]
+    ]
+  },
+  {
+    "id": "emsc_dbg",
+    "type": "debug",
+    "name": "Resultado EMSC",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 1430,
+    "y": 600,
+    "wires": []
+  }
+]
