@@ -1,0 +1,87 @@
+[
+  {
+    "id": "sim_tab",
+    "type": "tab",
+    "label": "Simulador de erros",
+    "disabled": false,
+    "info": "Gera sismos com valores impossiveis para testar a validacao do KNIME."
+  },
+  {
+    "id": "sim_inj",
+    "type": "inject",
+    "z": "sim_tab",
+    "name": "Simular sismos com erros",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 190,
+    "y": 100,
+    "wires": [
+      [
+        "sim_fn"
+      ]
+    ]
+  },
+  {
+    "id": "sim_fn",
+    "type": "function",
+    "z": "sim_tab",
+    "name": "Gerar 4 sismos invalidos",
+    "func": "// Simulador de erros: gera sismos com valores impossiveis (para testar a validacao no KNIME)\nconst agora = Date.now();\nconst mk = (id, mag, lon, lat, prof) => JSON.stringify({\n  type: \"Feature\",\n  properties: { mag: mag, place: \"1 km N of Simulacao, Portugal\", time: agora },\n  geometry: { type: \"Point\", coordinates: [lon, lat, prof] },\n  id: id\n});\nconst casos = [\n  [\"SIM-MAG20-\" + agora,      20,   -9.1, 38.7, 10],\n  [\"SIM-MAGNEG100-\" + agora, -100,  -9.2, 38.8, 10],\n  [\"SIM-LAT123-\" + agora,     4.5,  -9.3, 123,  10],\n  [\"SIM-PROF5000-\" + agora,   3.0,  -9.4, 38.9, 5000]\n];\nconst ids = casos.map(c => c[0]);\nconst payloads = casos.map(c => mk(c[0], c[1], c[2], c[3], c[4]));\nmsg.query = `INSERT INTO raw_sismos (fonte, formato, id_externo, payload)\nSELECT 'USGS', 'geojson', t.id, t.p\nFROM UNNEST($1::text[], $2::text[]) AS t(id, p)\nON CONFLICT (fonte, id_externo) DO NOTHING`;\nmsg.params = [ids, payloads];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 440,
+    "y": 100,
+    "wires": [
+      [
+        "sim_pg"
+      ]
+    ]
+  },
+  {
+    "id": "sim_pg",
+    "type": "postgresql",
+    "z": "sim_tab",
+    "name": "INSERT raw_sismos (simulacao)",
+    "query": "",
+    "postgreSQLConfig": "pg_config",
+    "split": false,
+    "rowsPerMsg": 1,
+    "outputs": 1,
+    "x": 710,
+    "y": 100,
+    "wires": [
+      [
+        "sim_dbg"
+      ]
+    ]
+  },
+  {
+    "id": "sim_dbg",
+    "type": "debug",
+    "z": "sim_tab",
+    "name": "Resultado",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 920,
+    "y": 100,
+    "wires": []
+  }
+]
